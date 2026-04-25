@@ -7,7 +7,9 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main",
-    "test": "jest --passWithNoTests"
+    "test": "jest --passWithNoTests",
+    "test:e2e": "jest --config jest.e2e.config.js --runInBand",
+    "test:e2e:watch": "jest --config jest.e2e.config.js --watch --runInBand"
   },
   "dependencies": {
     "@nestjs/bullmq": "^10.2.1",
@@ -17,6 +19,7 @@
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.0.0",
     "@prisma/client": "^5.13.0",
+    "axios": "^1.6.0",
     "bullmq": "^5.12.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -29,10 +32,14 @@
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",
     "@nestjs/testing": "^10.0.0",
+    "@stellar/stellar-sdk": "^11.3.0",
     "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.0",
     "@types/node": "^20.12.7",
     "@types/passport-jwt": "^4.0.1",
+    "jest": "^29.5.0",
     "prisma": "^5.13.0",
+    "ts-jest": "^29.1.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.4.5"
   }
