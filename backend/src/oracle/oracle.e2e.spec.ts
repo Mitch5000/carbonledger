@@ -19,7 +19,7 @@
  * - BACKEND_API_URL: Backend API endpoint (e.g., http://localhost:3001)
  */
 
-import * as axios from "axios";
+import axios from "axios";
 import {
   Keypair,
   Network,
@@ -101,7 +101,7 @@ async function submitMonitoringViaApi(
   payload: MonitoringDataPayload,
 ): Promise<any> {
   try {
-    const response = await axios.default.post(
+    const response = await axios.post(
       `${BACKEND_API_URL}/api/v1/oracle/monitoring`,
       payload,
       {
