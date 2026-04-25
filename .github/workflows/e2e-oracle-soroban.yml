@@ -1,0 +1,150 @@
+name: E2E Tests - Oracle → Soroban Pipeline (Nightly)
+
+on:
+  schedule:
+    # Run every night at 2 AM UTC
+    - cron: "0 2 * * *"
+  # Also allow manual trigger for testing
+  workflow_dispatch:
+
+env:
+  STELLAR_NETWORK: testnet
+  STELLAR_RPC_URL: https://soroban-testnet.stellar.org
+  STELLAR_HORIZON_URL: https://horizon-testnet.stellar.org
+  BACKEND_API_URL: http://localhost:3001
+  POSTGRES_PASSWORD: testpass
+
+jobs:
+  e2e-tests:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: carbonledger_test
+          POSTGRES_USER: carbonledger
+          POSTGRES_PASSWORD: testpass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "npm"
+
+      - name: Setup environment variables
+        run: |
+          echo "DATABASE_URL=postgresql://carbonledger:testpass@localhost:5432/carbonledger_test" >> $GITHUB_ENV
+          echo "REDIS_HOST=localhost" >> $GITHUB_ENV
+          echo "REDIS_PORT=6379" >> $GITHUB_ENV
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET || 'test-secret-key-e2e' }}" >> $GITHUB_ENV
+          echo "ORACLE_SECRET_KEY=${{ secrets.TEST_ORACLE_SECRET_KEY }}" >> $GITHUB_ENV
+          echo "CARBON_ORACLE_CONTRACT_ID=${{ secrets.CARBON_ORACLE_CONTRACT_ID }}" >> $GITHUB_ENV
+          echo "CARBON_REGISTRY_CONTRACT_ID=${{ secrets.CARBON_REGISTRY_CONTRACT_ID }}" >> $GITHUB_ENV
+          echo "TEST_PROJECT_ID=test-project-e2e-$(date +%s)" >> $GITHUB_ENV
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Run database migrations
+        working-directory: ./backend
+        run: |
+          npx prisma migrate deploy
+
+      - name: Start backend server (background)
+        working-directory: ./backend
+        run: |
+          npm run build
+          npm run start:prod &
+          sleep 5
+
+      - name: Wait for backend to be ready
+        run: |
+          for i in {1..30}; do
+            if curl -f http://localhost:3001/api/v1/health 2>/dev/null; then
+              echo "Backend is ready"
+              exit 0
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+          echo "Backend failed to start"
+          exit 1
+
+      - name: Run E2E tests (Stellar Testnet)
+        working-directory: ./backend
+        run: |
+          npm run test:e2e -- --verbose
+        env:
+          STELLAR_NETWORK: testnet
+          STELLAR_RPC_URL: https://soroban-testnet.stellar.org
+          BACKEND_API_URL: http://localhost:3001
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: e2e-test-results
+          path: backend/coverage/
+
+      - name: Post test summary to Slack (on failure)
+        if: failure()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "❌ CarbonLedger E2E Tests Failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*E2E Tests - Oracle → Soroban Pipeline*\n*Status:* ❌ Failed\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>\n*Network:* Stellar Testnet"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Post test summary to Slack (on success)
+        if: success()
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "✅ CarbonLedger E2E Tests Passed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*E2E Tests - Oracle → Soroban Pipeline*\n*Status:* ✅ Passed\n*Run:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>\n*Network:* Stellar Testnet"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
